@@ -56,6 +56,10 @@ int main(int argc, char **argv) {
   wbLog(TRACE, "The dimensions of B are ", numBRows, " x ", numBColumns);
 
   //@@ Set numCRows and numCColumns
+  if (numAColumns != numBRows) {
+    wbLog(ERROR, "Matrix multiplication not possible. Invalid dimensions.");
+    return -1;
+  }
   numCRows = numARows;
   numCColumns = numBColumns;
 
