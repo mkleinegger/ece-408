@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 
   //@@ Allocate the hostC matrix
   hostC = (float *)malloc(numCColumns * numCRows * sizeof(float));
-  wbLog(TRACE, "The dimensions of C are ", numCRows, " x ", numCColumns);
+  // wbLog(TRACE, "The dimensions of C are ", numCRows, " x ", numCColumns);
 
   //@@ Allocate GPU memory here
   float *deviceA, *deviceB, *deviceC;

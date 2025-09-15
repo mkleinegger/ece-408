@@ -1,1 +1,5 @@
 libwb/
+**/*.err
+**/*.o
+**/*.out
+lab*/lab*
