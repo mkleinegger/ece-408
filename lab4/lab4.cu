@@ -12,17 +12,22 @@
     }                                                        \
   } while (0)
 
+// Adapted from ece408-lecture9-2D-convolution-vk-FL25.pdf
+
 //@@ Define any useful program-wide constants here
-#define FILTER_DIM 3
-#define TILE_WIDTH 3
+#define MASK_WIDTH 3
+#define MASK_RADIUS (MASK_WIDTH / 2)
+#define TILE_WIDTH 5
 
 //@@ Define constant memory for device kernel here
-__constant__ float filter_c[FILTER_DIM][FILTER_DIM][FILTER_DIM];
+__constant__ float Mc[MASK_WIDTH][MASK_WIDTH][MASK_WIDTH];
 
 __global__ void conv3d(float *input, float *output, const int z_size,
                        const int y_size, const int x_size)
 {
   //@@ Insert kernel code here
+  __shared__ float tile[TILE_WIDTH + MASK_WIDTH - 1][TILE_WIDTH + MASK_WIDTH - 1][TILE_WIDTH + MASK_WIDTH - 1];
+
   int tx = threadIdx.x;
   int ty = threadIdx.y;
   int tz = threadIdx.z;
@@ -31,14 +36,12 @@ __global__ void conv3d(float *input, float *output, const int z_size,
   unsigned int row = blockIdx.y * TILE_WIDTH + threadIdx.y;
   unsigned int depth = blockIdx.z * TILE_WIDTH + threadIdx.z;
 
-  __shared__ float tile[TILE_WIDTH + FILTER_DIM - 1][TILE_WIDTH + FILTER_DIM - 1][TILE_WIDTH + FILTER_DIM - 1];
+  int row_i = row - MASK_RADIUS;
+  int col_i = col - MASK_RADIUS;
+  int depth_i = depth - MASK_RADIUS;
 
-  int row_i = row - (FILTER_DIM / 2);
-  int col_i = col - (FILTER_DIM / 2);
-  int depth_i = depth - (FILTER_DIM / 2);
-
-  if ((row_i >= 0) && (row_i < y_size) && (col_i >= 0) && (col_i < x_size) && (depth_i >= 0) && (depth_i < z_size)) {
-    tile[tz][ty][tx] += input[(depth_i * TILE_WIDTH * y_size) + (row_i * x_size) + col_i];
+  if ((row_i >= 0 && row_i < y_size) && (col_i >= 0 && col_i < x_size) && (depth_i >= 0 && depth_i < z_size)) {
+    tile[tz][ty][tx] = input[depth_i * y_size * x_size + row_i * x_size + col_i];
   } else {
     tile[tz][ty][tx] = 0.0f;
   }
@@ -47,15 +50,15 @@ __global__ void conv3d(float *input, float *output, const int z_size,
 
   float output_value = 0.0f;
   if (tz < TILE_WIDTH && ty < TILE_WIDTH && tx < TILE_WIDTH) {
-    for (int z = 0; z < FILTER_DIM; z++) {
-      for (int y = 0; y < FILTER_DIM; y++) {
-        for (int x = 0; x < FILTER_DIM; x++) {
-          output_value += tile[tz + z][ty + y][tx + x] * filter_c[z][y][x];
+    for (int z = 0; z < MASK_WIDTH; z++) {
+      for (int y = 0; y < MASK_WIDTH; y++) {
+        for (int x = 0; x < MASK_WIDTH; x++) {
+          output_value += Mc[z][y][x] * tile[tz + z][ty + y][tx + x];
         }
       }
     }
     if (row < y_size && col < x_size && depth < z_size) {
-      output[(depth * y_size * x_size) + (row * x_size) + col] = output_value;
+      output[depth * y_size * x_size + row * x_size + col] = output_value;
     }
   }
 }
@@ -100,10 +103,10 @@ int main(int argc, char *argv[])
   // Recall that the first three elements of hostInput are dimensions and
   // do not need to be copied to the gpu
   wbCheck(cudaMemcpy(deviceInput, hostInput + 3, (inputLength - 3) * sizeof(float), cudaMemcpyHostToDevice));
-  wbCheck(cudaMemcpyToSymbol(filter_c, hostKernel, kernelLength * sizeof(float), 0, cudaMemcpyHostToDevice));
+  wbCheck(cudaMemcpyToSymbol(Mc, hostKernel, kernelLength * sizeof(float), 0, cudaMemcpyHostToDevice));
 
   //@@ Initialize grid and block dimensions here
-  dim3 dimBlock(TILE_WIDTH + (FILTER_DIM - 1), TILE_WIDTH + (FILTER_DIM - 1), TILE_WIDTH + (FILTER_DIM - 1));
+  dim3 dimBlock(TILE_WIDTH + MASK_WIDTH - 1, TILE_WIDTH + MASK_WIDTH - 1, TILE_WIDTH + MASK_WIDTH - 1);
   dim3 dimGrid(ceil(x_size / (1.0 * TILE_WIDTH)), ceil(y_size / (1.0 * TILE_WIDTH)), ceil(z_size / (1.0 * TILE_WIDTH)));
 
   //@@ Launch the GPU kernel here
@@ -121,10 +124,6 @@ int main(int argc, char *argv[])
   hostOutput[1] = y_size;
   hostOutput[2] = x_size;
   wbSolution(args, hostOutput, inputLength);
-
-  // for (int i = 0; i < 10; i++) {
-  //   printf("%f ", hostOutput[i]);
-  // }
 
   //@@ Free device memory
   wbCheck(cudaFree(deviceInput));
