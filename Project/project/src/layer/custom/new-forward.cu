@@ -48,8 +48,8 @@ __global__ void conv_forward_kernel(float *output, const float *input, const flo
     // Insert your GPU convolution kernel code here
     const int W_GRID = (Width_out - 1) / TILE_WIDTH + 1;
 
-    int m = blockIdx.x;     // feature_map
-    int b = blockIdx.z;     // batch
+    int m = blockIdx.x;     // feature_map_out
+    int b = blockIdx.z;     // batch (in & out)
     int h = (blockIdx.y / W_GRID) * TILE_WIDTH + threadIdx.y;
     int w = (blockIdx.y % W_GRID) * TILE_WIDTH + threadIdx.x;
 
