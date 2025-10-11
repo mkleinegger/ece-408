@@ -1,5 +1,6 @@
 #include "cpu-new-forward.h"
 
+// Adapted from Chapter 16, Figure 16.12 "Forward path of a convolutional layer with minibatch training" from Programming Massively Parallel Processors, 4th Edition
 void conv_forward_cpu(float *output, const float *input, const float *mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
   /*
@@ -33,15 +34,15 @@ void conv_forward_cpu(float *output, const float *input, const float *mask, cons
   #define mask_4d(i3, i2, i1, i0) mask[(i3) * (Channel * K * K) + (i2) * (K * K) + (i1) * (K) + i0]
 
   // Insert your CPU convolution kernel code here
-  for (int batch = 0; batch < Batch; batch++) {
-    for (int feature_map = 0; feature_map < Map_out; feature_map++) {
+  for (int b = 0; b < Batch; b++) {   // batch (in & out)
+    for (int m = 0; m < Map_out; m++) { // feature_map (out)
       for (int h = 0; h < Height_out; h++) {
         for (int w = 0; w < Height_out; w++) {
-          out_4d(batch, feature_map, h, w) = 0.0f;
-          for(int channel = 0; channel < Channel; channel++) {
-            for (int filter_i = 0; filter_i < K; filter_i++) {
-              for (int filter_j = 0; filter_j < K; filter_j++) {
-                out_4d(batch, feature_map, h, w) += in_4d(batch, channel, h + filter_i, w + filter_j) * mask_4d(feature_map, channel, filter_i, filter_j);
+          out_4d(b, m, h, w) = 0.0f;
+          for(int c = 0; c < Channel; c++) {  // channel (in)
+            for (int p = 0; p < K; p++) {
+              for (int q = 0; q < K; q++) {
+                out_4d(b, m, h, w) += in_4d(b, c, h + p, w + q) * mask_4d(m, c, p, q);
               }
             }
           }

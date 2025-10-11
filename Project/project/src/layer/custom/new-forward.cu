@@ -13,7 +13,7 @@
 
 #define TILE_WIDTH 16
 
-// Adapted from Chapter 16 "Kernel for the forward path of a convolutional layer" from Programming Massively Parallel Processors, 4th Edition
+// Adapted from Chapter 16, Figure 16.15 "Kernel for the forward path of a convolutional layer" from Programming Massively Parallel Processors, 4th Edition
 __global__ void conv_forward_kernel(float *output, const float *input, const float *mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
     /*
@@ -93,7 +93,7 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
     cudaMemcpy(*device_mask_ptr, host_mask, mask_size, cudaMemcpyHostToDevice);
 }
 
-// Adapted from Chapter 16 "Host code for launching a convolutional layer kernel" from Programming Massively Parallel Processors, 4th Edition
+// Adapted from Chapter 16, Figure 16.13 "Host code for launching a convolutional layer kernel" from Programming Massively Parallel Processors, 4th Edition
 __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *device_input, const float *device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
     // Set the kernel dimensions and call the kernel
