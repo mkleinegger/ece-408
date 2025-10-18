@@ -22,6 +22,8 @@ echo -e "job $SLURM_JOBID is starting on `hostname`\n\n"
 SANITIZER_FLAGS="--show-backtrace no --print-limit 5 --error-exitcode -1 --destroy-on-device-error kernel"
 
 srun echo -e "\nmemcheck tests:"
+srun compute-sanitizer --tool memcheck $SANITIZER_FLAGS ./lab3 -e data/0/output.raw -i data/0/input0.raw,data/0/input1.raw -o /tmp/myoutput.raw -t matrix
+srun compute-sanitizer --tool memcheck $SANITIZER_FLAGS ./lab3 -e data/1/output.raw -i data/1/input0.raw,data/1/input1.raw -o /tmp/myoutput.raw -t matrix
 srun compute-sanitizer --tool memcheck $SANITIZER_FLAGS ./lab3 -e data/2/output.raw -i data/2/input0.raw,data/2/input1.raw -o /tmp/myoutput.raw -t matrix 
 srun compute-sanitizer --tool memcheck $SANITIZER_FLAGS ./lab3 -e data/3/output.raw -i data/3/input0.raw,data/3/input1.raw -o /tmp/myoutput.raw -t matrix 
 srun compute-sanitizer --tool memcheck $SANITIZER_FLAGS ./lab3 -e data/4/output.raw -i data/4/input0.raw,data/4/input1.raw -o /tmp/myoutput.raw -t matrix 
