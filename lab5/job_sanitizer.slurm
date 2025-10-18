@@ -10,7 +10,7 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --gpu-bind=closest
 #SBATCH --account=bche-delta-gpu
-#SBATCH -t 00:00:30
+#SBATCH -t 00:01:00
 
 module reset
 module load cuda/12.4
