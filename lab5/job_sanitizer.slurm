@@ -15,6 +15,8 @@
 module reset
 module load cuda/12.4
 
+set -e # exit on error
+
 echo -e "job $SLURM_JOBID is starting on `hostname`\n\n"
 
 SANITIZER_FLAGS="--show-backtrace no --print-limit 5 --error-exitcode -1 --destroy-on-device-error kernel"
