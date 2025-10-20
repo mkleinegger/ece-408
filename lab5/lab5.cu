@@ -12,77 +12,74 @@
 } while(0)
 
 #define HISTOGRAM_LENGTH 256
-
 #define TILE_WIDTH 16
+#define BLOCK_DIM 256
 
 //@@ insert code here
-__global__ void float_to_uchar_kernel(float *input_image, unsigned char *output_image, int image_width, int image_height, int imageChannels) {
-  int Col = blockDim.x * blockIdx.x + threadIdx.x;
-  int Row = blockDim.y * blockIdx.y + threadIdx.y;
-  int Channel = threadIdx.z;
+__global__ void float_to_uchar_cast_kernel(float *input_image, unsigned char *output_image, int image_width, int image_height, int image_channels) {
+  int col = blockDim.x * blockIdx.x + threadIdx.x;
+  int row = blockDim.y * blockIdx.y + threadIdx.y;
+  int channel = threadIdx.z;
 
-  if (Col < image_width && Row < image_height) {
-    int index = (Row * image_width + Col) * imageChannels + Channel;
+  if (col < image_width && row < image_height) {
+    int index = (row * image_width + col) * image_channels + channel;
     output_image[index] =  (unsigned char)(255 * input_image[index]);
   }
 }
 
-__global__ void color_to_grayscale_kernel(unsigned char *image, unsigned char* grayscale_image, int image_width, int image_height) {
-  int Col = blockDim.x * blockIdx.x + threadIdx.x;
-  int Row = blockDim.y * blockIdx.y + threadIdx.y;
+__global__ void uchar_to_float_cast_kernel(unsigned char *input_image, float *output_image, int image_width, int image_height, int image_channels) {
+  int col = blockDim.x * blockIdx.x + threadIdx.x;
+  int row = blockDim.y * blockIdx.y + threadIdx.y;
+  int channel = threadIdx.z;
 
-  if (Col < image_width && Row < image_height) {
-    int grayscale_offset = Row * image_width + Col;
-    int rgb_offset = grayscale_offset * 3;
+  if (col < image_width && row < image_height) {
+    int index = (row * image_width + col) * image_channels + channel;
+    output_image[index] =  (float)(input_image[index] / 255.0);
+  }
+}
 
-    unsigned char r = image[rgb_offset];
-    unsigned char g = image[rgb_offset + 1];
-    unsigned char b = image[rgb_offset + 2];
+__global__ void color_to_grayscale_kernel(unsigned char *color_image, unsigned char *grayscale_image, int image_width, int image_height, int image_channels) {
+  int col = blockDim.x * blockIdx.x + threadIdx.x;
+  int row = blockDim.y * blockIdx.y + threadIdx.y;
+
+  if (col < image_width && row < image_height) {
+    int grayscale_offset = row * image_width + col;
+    int rgb_offset = grayscale_offset * image_channels;
+
+    unsigned char r = color_image[rgb_offset];
+    unsigned char g = color_image[rgb_offset + 1];
+    unsigned char b = color_image[rgb_offset + 2];
 
     grayscale_image[grayscale_offset] = (unsigned char) (0.21f * r + 0.71f * g + 0.07f * b);
   }
 }
 
-__global__ void calculate_histogram(unsigned char *grayscale_image, unsigned int *histogram, int image_width, int image_height) {
-  int Col = blockDim.x * blockIdx.x + threadIdx.x;
-  int Row = blockDim.y * blockIdx.y + threadIdx.y;
+__global__ void generate_hist_kernel(unsigned char *grayscale_image, unsigned int *hist, int image_width, int image_height) {
+  int col = blockDim.x * blockIdx.x + threadIdx.x;
+  int row = blockDim.y * blockIdx.y + threadIdx.y;
 
-  if (Col < image_width && Row < image_height) {
-      int index = Row * image_width + Col;
-      int value = grayscale_image[index];
+  if (col < image_width && row < image_height) {
+      int value = grayscale_image[row * image_width + col];
+
       if (value >= 0 && value < 256) {
-        atomicAdd(&(histogram[value]), 1);
+        atomicAdd(&(hist[value]), 1);
       }
   }
 }
 
-__device__ unsigned char correct_color(unsigned char value, float *cdf, float cdf_min, float cdf_max) {
+__device__ unsigned char apply_cdf_correction(unsigned char value, float *cdf, float cdf_min) {
   unsigned char corrected_value = 255 * (cdf[value] - cdf_min) / (1.0 - cdf_min);
   return min(max(corrected_value, 0), 255);
 }
 
-__global__ void correct_image(unsigned char *image, unsigned char *corrected_image, float *cdf, int image_width, int image_height, int imageChannels) {
-  int Col = blockDim.x * blockIdx.x + threadIdx.x;
-  int Row = blockDim.y * blockIdx.y + threadIdx.y;
-  int Channel = threadIdx.z;
+__global__ void correct_image_kernel(unsigned char *image, unsigned char *corrected_image, float *cdf, int image_width, int image_height, int imageChannels) {
+  int col = blockDim.x * blockIdx.x + threadIdx.x;
+  int row = blockDim.y * blockIdx.y + threadIdx.y;
+  int channel = threadIdx.z;
 
-  float cdf_min = cdf[0];
-  float cdf_max = cdf[HISTOGRAM_LENGTH - 1];
-
-  if (Col < image_width && Row < image_height) {
-    int index = (Row * image_width + Col) * imageChannels + Channel;
-    corrected_image[index] = (unsigned char)(correct_color(image[index], cdf, cdf_min, cdf_max));
-  }
-}
-
-__global__ void uchar_to_float_kernel(unsigned char *input_image, float *output_image, int image_width, int image_height, int imageChannels) {
-  int Col = blockDim.x * blockIdx.x + threadIdx.x;
-  int Row = blockDim.y * blockIdx.y + threadIdx.y;
-  int Channel = threadIdx.z;
-
-  if (Col < image_width && Row < image_height) {
-    int index = (Row * image_width + Col) * imageChannels + Channel;
-    output_image[index] =  (float)(input_image[index] / 255.0);
+  if (col < image_width && row < image_height) {
+    int index = (row * image_width + col) * imageChannels + channel;
+    corrected_image[index] = (unsigned char)(apply_cdf_correction(image[index], cdf, cdf[0]));
   }
 }
 
@@ -108,9 +105,9 @@ int main(int argc, char **argv) {
   float *deviceInputImage;
   unsigned char *deviceUCharImage; 
   unsigned char *deviceGrayScaleImage;
+  unsigned char *deviceCorrectedImage;
   unsigned int *deviceHistogram;
   float *deviceCDF;
-  unsigned char *deviceCorrectedImage;
   float *deviceOutput;
 
   unsigned int *hostHistogram;
@@ -150,12 +147,12 @@ int main(int argc, char **argv) {
 
   dim3 dimBlockConversion(TILE_WIDTH, TILE_WIDTH, imageChannels);
   dim3 dimGridConversion(ceil(imageWidth / (1.0 * TILE_WIDTH)), ceil(imageHeight / (1.0 * TILE_WIDTH)), 1);
-  dim3 dimBlockColorToGrayScale(TILE_WIDTH, TILE_WIDTH, 1);
-  dim3 dimGridColorToGrayScale(ceil(imageWidth / (1.0 * TILE_WIDTH)), ceil(imageHeight / (1.0 * TILE_WIDTH)), 1);
+  dim3 dimBlock2D(TILE_WIDTH, TILE_WIDTH, 1);
+  dim3 dimGrid2D(ceil(imageWidth / (1.0 * TILE_WIDTH)), ceil(imageHeight / (1.0 * TILE_WIDTH)), 1);
 
-  float_to_uchar_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceInputImage, deviceUCharImage, imageWidth, imageHeight, imageChannels);
-  color_to_grayscale_kernel<<<dimGridColorToGrayScale, dimBlockColorToGrayScale>>>(deviceUCharImage, deviceGrayScaleImage, imageWidth, imageHeight);
-  calculate_histogram<<<dimGridColorToGrayScale, dimBlockColorToGrayScale>>>(deviceGrayScaleImage, deviceHistogram, imageWidth, imageHeight);
+  float_to_uchar_cast_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceInputImage, deviceUCharImage, imageWidth, imageHeight, imageChannels);
+  color_to_grayscale_kernel<<<dimGrid2D, dimBlock2D>>>(deviceUCharImage, deviceGrayScaleImage, imageWidth, imageHeight, imageChannels);
+  generate_hist_kernel<<<dimGrid2D, dimBlock2D>>>(deviceGrayScaleImage, deviceHistogram, imageWidth, imageHeight);
   
   cudaDeviceSynchronize();
 
@@ -164,8 +161,8 @@ int main(int argc, char **argv) {
   calculate_cdf(hostHistogram, hostCDF, imageWidth, imageHeight);
   wbCheck(cudaMemcpy(deviceCDF, hostCDF, HISTOGRAM_LENGTH * sizeof(float), cudaMemcpyHostToDevice));
   
-  correct_image<<<dimGridConversion, dimBlockConversion>>>(deviceUCharImage, deviceCorrectedImage, deviceCDF, imageWidth, imageHeight, imageChannels);
-  uchar_to_float_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceCorrectedImage, deviceOutput, imageWidth, imageHeight, imageChannels);
+  correct_image_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceUCharImage, deviceCorrectedImage, deviceCDF, imageWidth, imageHeight, imageChannels);
+  uchar_to_float_cast_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceCorrectedImage, deviceOutput, imageWidth, imageHeight, imageChannels);
   
   cudaDeviceSynchronize();
 
