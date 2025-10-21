@@ -13,7 +13,7 @@
 
 #define HISTOGRAM_LENGTH 256
 #define TILE_WIDTH 16
-#define BLOCK_DIM 256
+#define BLOCK_DIM HISTOGRAM_LENGTH
 
 //@@ insert code here
 __global__ void float_to_uchar_cast_kernel(float *input_image, unsigned char *output_image, int image_width, int image_height, int image_channels) {
@@ -22,8 +22,8 @@ __global__ void float_to_uchar_cast_kernel(float *input_image, unsigned char *ou
   int channel = threadIdx.z;
 
   if (col < image_width && row < image_height) {
-    int index = (row * image_width + col) * image_channels + channel;
-    output_image[index] =  (unsigned char)(255 * input_image[index]);
+    int idx = (row * image_width + col) * image_channels + channel;
+    output_image[idx] =  (unsigned char)(255 * input_image[idx]);
   }
 }
 
@@ -33,8 +33,8 @@ __global__ void uchar_to_float_cast_kernel(unsigned char *input_image, float *ou
   int channel = threadIdx.z;
 
   if (col < image_width && row < image_height) {
-    int index = (row * image_width + col) * image_channels + channel;
-    output_image[index] =  (float)(input_image[index] / 255.0);
+    int idx = (row * image_width + col) * image_channels + channel;
+    output_image[idx] =  (float)(input_image[idx] / 255.0);
   }
 }
 
@@ -72,21 +72,44 @@ __device__ unsigned char apply_cdf_correction(unsigned char value, float *cdf, f
   return min(max(corrected_value, 0), 255);
 }
 
-__global__ void correct_image_kernel(unsigned char *image, unsigned char *corrected_image, float *cdf, int image_width, int image_height, int imageChannels) {
+__global__ void equalize_image_kernel(unsigned char *image, unsigned char *corrected_image, float *cdf, int image_width, int image_height, int imageChannels) {
   int col = blockDim.x * blockIdx.x + threadIdx.x;
   int row = blockDim.y * blockIdx.y + threadIdx.y;
   int channel = threadIdx.z;
 
   if (col < image_width && row < image_height) {
-    int index = (row * image_width + col) * imageChannels + channel;
-    corrected_image[index] = (unsigned char)(apply_cdf_correction(image[index], cdf, cdf[0]));
+    int idx = (row * image_width + col) * imageChannels + channel;
+    corrected_image[idx] = (unsigned char)(apply_cdf_correction(image[idx], cdf, cdf[0]));
   }
 }
 
-void calculate_cdf(unsigned int *histogram, float *cdf, int image_width, int image_height) {
-  cdf[0] = ((float) histogram[0]) / (image_width * image_height);
-  for (int i = 1; i < HISTOGRAM_LENGTH; i++) {
-    cdf[i] = cdf[i - 1] + (((float) histogram[i]) / (image_width * image_height));
+__global__ void generate_cdf_scan_kernel(unsigned int *hist, float *cdf, int image_width, int image_height) {
+  __shared__ float buffer_s[BLOCK_DIM];
+  
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  
+  if (idx < HISTOGRAM_LENGTH) {
+    buffer_s[threadIdx.x] = ((float) hist[idx] / (image_width * image_height));
+  } else {
+    buffer_s[threadIdx.x] = 0.0f;
+  }
+
+  for(unsigned int stride = 1; stride <= BLOCK_DIM/2; stride *= 2) {
+    __syncthreads();
+  
+    float temp;
+    if(threadIdx.x >= stride) {
+      temp = buffer_s[threadIdx.x] + buffer_s[threadIdx.x - stride];
+    }
+    __syncthreads();
+  
+    if(threadIdx.x >= stride) {
+        buffer_s[threadIdx.x] = temp;
+    }
+  }
+
+  if (idx < HISTOGRAM_LENGTH) {
+    cdf[idx] = buffer_s[threadIdx.x];
   }
 }
 
@@ -110,9 +133,6 @@ int main(int argc, char **argv) {
   float *deviceCDF;
   float *deviceOutput;
 
-  unsigned int *hostHistogram;
-  float *hostCDF;
-
   args = wbArg_read(argc, argv); /* parse the input arguments */
 
   inputImageFile = wbArg_getInputFile(args, 0);
@@ -130,10 +150,6 @@ int main(int argc, char **argv) {
   int numTotalPixels = imageWidth * imageHeight * imageChannels;
   int numPixels = imageWidth * imageHeight;
 
-  //@@ TODO: delete
-  hostHistogram = (unsigned int *) malloc(sizeof(unsigned int) * HISTOGRAM_LENGTH);
-  hostCDF = (float *) malloc(sizeof(unsigned int) * HISTOGRAM_LENGTH);
-
   wbCheck(cudaMalloc((void **)&deviceInputImage, numTotalPixels * sizeof(float)));
   wbCheck(cudaMalloc((void **)&deviceUCharImage, numTotalPixels * sizeof(unsigned char)));
   wbCheck(cudaMalloc((void **)&deviceGrayScaleImage, numPixels * sizeof(unsigned char)));
@@ -143,25 +159,20 @@ int main(int argc, char **argv) {
   wbCheck(cudaMalloc((void **)&deviceOutput, numTotalPixels * sizeof(float)));
 
   wbCheck(cudaMemcpy(deviceInputImage, hostInputImageData, numTotalPixels * sizeof(float), cudaMemcpyHostToDevice));
-  wbCheck(cudaMemset(deviceHistogram, 0, HISTOGRAM_LENGTH * sizeof(unsigned int)));
+  wbCheck(cudaMemset(deviceHistogram, 0, HISTOGRAM_LENGTH * sizeof(unsigned int))); // for initcheck tests
 
   dim3 dimBlockConversion(TILE_WIDTH, TILE_WIDTH, imageChannels);
   dim3 dimGridConversion(ceil(imageWidth / (1.0 * TILE_WIDTH)), ceil(imageHeight / (1.0 * TILE_WIDTH)), 1);
   dim3 dimBlock2D(TILE_WIDTH, TILE_WIDTH, 1);
   dim3 dimGrid2D(ceil(imageWidth / (1.0 * TILE_WIDTH)), ceil(imageHeight / (1.0 * TILE_WIDTH)), 1);
+  dim3 dimBlockScan(HISTOGRAM_LENGTH, 1, 1);
+  dim3 dimGridScan(1, 1, 1);
 
   float_to_uchar_cast_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceInputImage, deviceUCharImage, imageWidth, imageHeight, imageChannels);
   color_to_grayscale_kernel<<<dimGrid2D, dimBlock2D>>>(deviceUCharImage, deviceGrayScaleImage, imageWidth, imageHeight, imageChannels);
   generate_hist_kernel<<<dimGrid2D, dimBlock2D>>>(deviceGrayScaleImage, deviceHistogram, imageWidth, imageHeight);
-  
-  cudaDeviceSynchronize();
-
-  //TODO: make this a kernel
-  wbCheck(cudaMemcpy(hostHistogram, deviceHistogram, HISTOGRAM_LENGTH * sizeof(unsigned int), cudaMemcpyDeviceToHost));
-  calculate_cdf(hostHistogram, hostCDF, imageWidth, imageHeight);
-  wbCheck(cudaMemcpy(deviceCDF, hostCDF, HISTOGRAM_LENGTH * sizeof(float), cudaMemcpyHostToDevice));
-  
-  correct_image_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceUCharImage, deviceCorrectedImage, deviceCDF, imageWidth, imageHeight, imageChannels);
+  generate_cdf_scan_kernel<<<dimGridScan, dimBlockScan>>>(deviceHistogram, deviceCDF, imageWidth, imageHeight);
+  equalize_image_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceUCharImage, deviceCorrectedImage, deviceCDF, imageWidth, imageHeight, imageChannels);
   uchar_to_float_cast_kernel<<<dimGridConversion, dimBlockConversion>>>(deviceCorrectedImage, deviceOutput, imageWidth, imageHeight, imageChannels);
   
   cudaDeviceSynchronize();
@@ -183,8 +194,6 @@ int main(int argc, char **argv) {
   free(outputImage);
   free(hostInputImageData);
   free(hostOutputImageData);
-  free(hostCDF);
-  free(hostHistogram);
 
   return 0;
 }
