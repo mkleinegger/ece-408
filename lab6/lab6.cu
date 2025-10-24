@@ -25,13 +25,12 @@ __global__ void total(float *input, float *output, int len) {
   unsigned int tx = threadIdx.x;
 
   __shared__ float input_s[BLOCK_SIZE];
-  if (tx < BLOCK_SIZE && idx + BLOCK_SIZE < len && idx < len) {
+  input_s[tx] = 0.0f;
+  if (idx + BLOCK_SIZE < len && idx < len) {
     input_s[tx] = input[idx] + input[idx + BLOCK_SIZE];
-  } else if (tx < BLOCK_SIZE && idx < len) {
+  } else if (idx < len) {
     input_s[tx] = input[idx];
-  } else {
-    input_s[tx] = 0.0f;
-  }
+  } 
 
   for(unsigned int stride = BLOCK_SIZE/2; stride > 0; stride /= 2) {
     __syncthreads();
