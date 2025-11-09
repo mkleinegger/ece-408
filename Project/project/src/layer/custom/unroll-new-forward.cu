@@ -4,6 +4,7 @@
 #include "matmul.h"
 
 #define PERMUTE_BLOCK_SIZE 256
+#define UNROLL_BLOCK_SIZE 256
 
 __global__ void matrix_unrolling_kernel(const float *input, float *output,
                                         const int Batch, const int Channel,
@@ -24,48 +25,38 @@ __global__ void matrix_unrolling_kernel(const float *input, float *output,
     */
     const int Height_out = Height - K + 1;
     const int Width_out = Width - K + 1;
-    // (void)Height_out; // silence declared but never referenced warning. remove this line when you start working
-    // (void)Width_out; // silence declared but never referenced warning. remove this line when you start working
+    const size_t W_unroll = Height_out * Width_out;
 
     // We have some nice #defs for you below to simplify indexing. Feel free to use them, or create your own.
     // An example use of these macros:
     // float a = in_4d(0,0,0,0)
 
 #define in_4d(i3, i2, i1, i0) input[(i3) * (Channel * Height * Width) + (i2) * (Height * Width) + (i1) * (Width) + i0]
+#define out_3d(i2, i1, i0) output[(i2 * Batch * W_unroll) + (i1 * W_unroll) + i0]
 
-    // TODO: Insert your input matrix unrolling kernel code here
     size_t t = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t b = blockIdx.y;
+    int b = blockIdx.y;
 
-    size_t W_unroll = Height_out * Width_out;
     if (t < Channel * W_unroll)
     {
-        size_t c = t / W_unroll;
-
+        int c = t / W_unroll;
         size_t w_unroll = t % W_unroll;
-
         size_t h_out = w_unroll / Width_out;
         size_t w_out = w_unroll % Width_out;
-
-        size_t Width_unrolled  = Batch * W_unroll;
 
         size_t w_base = c * K * K;
         for (int p = 0; p < K; p++)
         {
             for (int q = 0; q < K; q++)
             {
-                size_t h_unroll = w_base + p * K + q;       // row
-                size_t col      = b * W_unroll + w_unroll;  // column
-
-                size_t idx = h_unroll * Width_unrolled + col;
-                output[idx] = in_4d(b, c, h_out + p, w_out + q);
-                // output[b * W_unroll + h_unroll * Width_out + w_unroll] = in_4d(b, c, h_out + p, w_out + q);
+                size_t h_unroll = w_base + p * K + q;
+                out_3d(h_unroll, b, w_unroll) = in_4d(b, c, h_out + p, w_out + q);
             }
         }
     }
 
 #undef in_4d
-#undef out_4d
+#undef out_3d
 }
 
 // Permutes the matmul result.
@@ -129,10 +120,9 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
     cudaMalloc((void **)&matmul_output, (Batch * Map_out * Height_out * Width_out) * sizeof(float));
 
     // TODO: Set the kernel dimensions and call the matrix unrolling kernel.
-    int num_threads = 256;
-    int num_blocks = (((Channel * Height_out * Width_out) - 1) / num_threads) + 1;
-    
-    dim3 unrolling_block_dim(num_threads, 1, 1);
+    int num_blocks = (((Channel * Height_out * Width_out) - 1) / UNROLL_BLOCK_SIZE) + 1;
+
+    dim3 unrolling_block_dim(UNROLL_BLOCK_SIZE, 1, 1);
     dim3 unrolling_grid_dim(num_blocks, Batch, 1);
 
     matrix_unrolling_kernel<<<unrolling_grid_dim, unrolling_block_dim>>>(
