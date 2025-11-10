@@ -25,7 +25,7 @@ __global__ void matrix_unrolling_kernel(const float *input, float *output,
     */
     const int Height_out = Height - K + 1;
     const int Width_out = Width - K + 1;
-    const size_t W_unroll = Height_out * Width_out;
+    const int W_unroll = Height_out * Width_out;
 
     // We have some nice #defs for you below to simplify indexing. Feel free to use them, or create your own.
     // An example use of these macros:
@@ -34,17 +34,17 @@ __global__ void matrix_unrolling_kernel(const float *input, float *output,
 #define in_4d(i3, i2, i1, i0) input[(i3) * (Channel * Height * Width) + (i2) * (Height * Width) + (i1) * (Width) + i0]
 #define out_3d(i2, i1, i0) output[(i2 * Batch * W_unroll) + (i1 * W_unroll) + i0]
 
-    size_t t = blockIdx.x * blockDim.x + threadIdx.x;
+    int t = blockIdx.x * blockDim.x + threadIdx.x;
     int b = blockIdx.y;
 
     if (t < Channel * W_unroll)
     {
         int c = t / W_unroll;
-        size_t w_unroll = t % W_unroll;
-        size_t h_out = w_unroll / Width_out;
-        size_t w_out = w_unroll % Width_out;
+        int w_unroll = t % W_unroll;
+        int h_out = w_unroll / Width_out;
+        int w_out = w_unroll % Width_out;
 
-        size_t w_base = c * K * K;
+        int w_base = c * K * K;
         for (int p = 0; p < K; p++)
         {
             for (int q = 0; q < K; q++)

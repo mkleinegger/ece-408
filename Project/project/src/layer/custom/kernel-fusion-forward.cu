@@ -49,16 +49,16 @@ __global__ void matmul_conv_fused(const float *mask, const float *input, float *
         // load 
         if (col < W_unroll && tileId * TILE_WIDTH + ty < H_unroll) {
             // load input
-            size_t b = col / (Height_out * Width_out);
-            size_t w_unroll = col % (Height_out * Width_out);
+            int b = col / (Height_out * Width_out);
+            int w_unroll = col % (Height_out * Width_out);
             
-            size_t h_out = w_unroll / Width_out;
-            size_t w_out = w_unroll % Width_out;
+            int h_out = w_unroll / Width_out;
+            int w_out = w_unroll % Width_out;
 
-            size_t index = tileId * TILE_WIDTH + ty;
-            size_t c = index / (K * K);
-            size_t p = (index % (K * K)) / K;
-            size_t q = index % K;
+            int index = tileId * TILE_WIDTH + ty;
+            int c = index / (K * K);
+            int p = (index % (K * K)) / K;
+            int q = index % K;
         
             tileB[ty][tx] = in_4d(b, c, h_out + p, w_out + q);
         } else {
@@ -68,16 +68,15 @@ __global__ void matmul_conv_fused(const float *mask, const float *input, float *
 
         if (row < Map_out && col < W_unroll) {
             for (int i = 0; i < TILE_WIDTH; i++) {
-                if (i < TILE_WIDTH)
-                    val += tileA[ty][i] * tileB[i][tx];
+                val += tileA[ty][i] * tileB[i][tx];
             }
         }
         __syncthreads();
     }
 
     if (row < Map_out && col < W_unroll) {
-        size_t b = col / (Height_out * Width_out);
-        size_t x = col % (Height_out * Width_out); 
+        int b = col / (Height_out * Width_out);
+        int x = col % (Height_out * Width_out); 
 
         output[b * Map_out * (Height_out * Width_out) + row * (Height_out * Width_out) + x] = val;
     }
