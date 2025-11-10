@@ -55,9 +55,10 @@ __global__ void matmul_conv_fused(const float *mask, const float *input, float *
             size_t h_out = w_unroll / Width_out;
             size_t w_out = w_unroll % Width_out;
 
-            size_t c = (tileId * TILE_WIDTH + tx) / (K * K);
-            size_t p = ((tileId * TILE_WIDTH + ty) % (K * K)) / K;
-            size_t q = (tileId * TILE_WIDTH + ty) % K;
+            size_t index = tileId * TILE_WIDTH + ty;
+            size_t c = index / (K * K);
+            size_t p = (index % (K * K)) / K;
+            size_t q = index % K;
         
             tileB[ty][tx] = in_4d(b, c, h_out + p, w_out + q);
         } else {
@@ -76,7 +77,7 @@ __global__ void matmul_conv_fused(const float *mask, const float *input, float *
 
     if (row < Map_out && col < W_unroll) {
         size_t b = col / (Height_out * Width_out);
-        size_t x = col % (Height_out * Width_out); // blockIdx.x * blockDim.x + threadIdx.x;
+        size_t x = col % (Height_out * Width_out); 
 
         output[b * Map_out * (Height_out * Width_out) + row * (Height_out * Width_out) + x] = val;
     }
@@ -117,7 +118,6 @@ __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *
     // TODO: Set the kernel dimensions and call the fused kernel
     const int Height_out = Height - K + 1;
     const int Width_out = Width - K + 1;
-    const int Height_unrolled = Channel * K * K;
     const int Width_unrolled = Batch * Height_out * Width_out;
 
     // TODO: Set the kernel dimensions and call the matrix unrolling kernel.
