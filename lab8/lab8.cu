@@ -10,10 +10,23 @@
     }                                                                     \
   } while (0)
 
+#define TILE_WIDTH 256
+
+// Adapted from ece408-lecture21-GPU-sparse-matrix-vk-FL25.pdf
 __global__ void spmvJDSKernel(float *out, int *matColStart, int *matCols,
                               int *matRowPerm, int *matRows,
                               float *matData, float *vec, int dim) {
   //@@ insert spmv kernel for jds format
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row < dim) {
+    float dot = 0;
+    unsigned int sec = 0;
+    while(sec < matRows[row]) {
+      dot += matData[matColStart[sec] + row] * vec[matCols[matColStart[sec] + row]];
+      sec++;
+    }
+    out[matRowPerm[row]] = dot;
+  }
 }
 
 static void spmvJDS(float *out, int *matColStart, int *matCols,
@@ -21,6 +34,10 @@ static void spmvJDS(float *out, int *matColStart, int *matCols,
                     float *vec, int dim) {
 
   //@@ invoke spmv kernel for jds format
+  dim3 dimBlock(TILE_WIDTH, 1);
+  dim3 dimGrid(ceil(dim / (1.0 * TILE_WIDTH)), 1);
+
+  spmvJDSKernel<<<dimGrid, dimBlock>>>(out, matColStart, matCols, matRowPerm, matRows, matData, vec, dim);
 }
 
 int main(int argc, char **argv) {
@@ -54,8 +71,6 @@ int main(int argc, char **argv) {
   hostVector = (float *)wbImport(wbArg_getInputFile(args, 3), &dim, "Real");
 
   hostOutput = (float *)malloc(sizeof(float) * dim);
-
-
 
   CSRToJDS(dim, hostCSRRows, hostCSRCols, hostCSRData, &hostJDSRowPerm, &hostJDSRows,
            &hostJDSColStart, &hostJDSCols, &hostJDSData);
