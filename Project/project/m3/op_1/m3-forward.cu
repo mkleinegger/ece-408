@@ -4,10 +4,8 @@
 
 #define TILE_WIDTH 16
 
-__constant__ float constant_mask[16384];
-
-__global__ void matmul_conv_fused(const float *mask, const float *input, float *output,
-                                  int Batch, int Map_out, int Channel, int Height, int Width, int K)
+__global__ void matmul_conv_fused(const float * __restrict__ mask, const float * __restrict__ input,
+    float * __restrict__ output, int Batch, int Map_out, int Channel, int Height, int Width, int K)
 {
     /*
     Function parameter definitions:
@@ -41,7 +39,7 @@ __global__ void matmul_conv_fused(const float *mask, const float *input, float *
     for (int tileId = 0; tileId < (H_unroll - 1) / TILE_WIDTH + 1; tileId++) {
         // load mask
         if (row < Map_out && tileId * TILE_WIDTH + tx < H_unroll) {
-            tileA[ty][tx] = constant_mask[row * H_unroll + tileId * TILE_WIDTH + threadIdx.x];
+            tileA[ty][tx] = mask[row * H_unroll + tileId * TILE_WIDTH + threadIdx.x];
         } else {
             tileA[ty][tx] = 0;
         }
@@ -86,7 +84,7 @@ __global__ void matmul_conv_fused(const float *mask, const float *input, float *
 
 __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, const float *host_input, const float *host_mask, float **device_output_ptr, float **device_input_ptr, float **device_mask_ptr, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
-    // Allocate memory and copy over the relevant data structures to the GPU
+    // TODO: Allocate memory and copy over the relevant data structures to the GPU
 
     // We pass double pointers for you to initialize the relevant device pointers,
     //  which are passed to the other two functions.
@@ -105,36 +103,39 @@ __host__ void GPUInterface::conv_forward_gpu_prolog(const float *host_output, co
     // alloc memory
     cudaMalloc((void **)device_input_ptr, input_size);
     cudaMalloc((void **)device_output_ptr, output_size);
+    cudaMalloc((void **)device_mask_ptr, mask_size);
 
     // copy data
     cudaMemcpy(*device_input_ptr, host_input, input_size, cudaMemcpyHostToDevice);
-    cudaMemcpyToSymbol(constant_mask, host_mask, mask_size, 0, cudaMemcpyHostToDevice);
+    cudaMemcpy(*device_mask_ptr, host_mask, mask_size, cudaMemcpyHostToDevice);
 }
 
 __host__ void GPUInterface::conv_forward_gpu(float *device_output, const float *device_input, const float *device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
-    // Set the kernel dimensions and call the fused kernel
+    // TODO: Set the kernel dimensions and call the fused kernel
     const int Height_out = Height - K + 1;
     const int Width_out = Width - K + 1;
     const int Width_unrolled = Batch * Height_out * Width_out;
 
-    // Set the kernel dimensions and call the matrix unrolling kernel.
+    // TODO: Set the kernel dimensions and call the matrix unrolling kernel.
     dim3 matmul_grid_dim((Width_unrolled - 1) / TILE_WIDTH + 1, (Map_out - 1) / TILE_WIDTH + 1, 1);
     dim3 matmul_block_dim(TILE_WIDTH, TILE_WIDTH, 1);
     matmul_conv_fused<<<matmul_grid_dim, matmul_block_dim>>>(
         device_mask, device_input, device_output, Batch,
         Map_out, Channel, Height, Width, K);
+    // cudaDeviceSynchronize();
 }
 
 __host__ void GPUInterface::conv_forward_gpu_epilog(float *host_output, float *device_output, float *device_input, float *device_mask, const int Batch, const int Map_out, const int Channel, const int Height, const int Width, const int K)
 {
-    // Copy the output back to host
+    // TODO: Copy the output back to host
     const int output_size = Batch * Map_out * (Height - K + 1) * (Width - K + 1) * sizeof(float);
     cudaMemcpy(host_output, device_output, output_size, cudaMemcpyDeviceToHost);
 
-    // Free device memory
+    // TODO: Free device memory
     cudaFree(device_input);
     cudaFree(device_output);
+    cudaFree(device_mask);
 }
 
 __host__ void GPUInterface::get_device_properties()
